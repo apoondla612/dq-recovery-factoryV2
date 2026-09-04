@@ -1,0 +1,15 @@
+{
+  "documents": {
+    "DQ-RCV-URS-001-v1.0": "dd675c04e637ae2161a61b87ed39a6423273ed9e17ff73ed53a9bf749131fec0",
+    "DQ-RCV-DS-001-v1.0": "183aa11a3ae48d299d24bdc7c380c0787eb190f33b19602ef09832894e15b753"
+  },
+  "required_specifications": {
+    "R00-rule-identity": "embedded in approved URS/DS; standalone ratified denominator not supplied",
+    "R01-accounting": "embedded in approved URS/DS",
+    "R02-normalisation": "embedded in approved URS/DS",
+    "R02A-record-kind-classification": "embedded in approved URS/DS",
+    "R05A-shape-signature": "embedded in approved URS/DS",
+    "R12A-informatica-evaluation-semantics": "MISSING - reviewed standalone semantics specification not supplied"
+  },
+  "note": "SHA-256 fingerprints of the approved 3 Sep 2026 requirements and solution-design documents supplied for this implementation. Human-owned normative acceptance fixtures/specifications remain external inputs."
+}
