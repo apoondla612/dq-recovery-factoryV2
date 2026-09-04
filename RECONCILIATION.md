@@ -1,6 +1,6 @@
 # Pilot reconciliation — 4 September 2026
 
-## Source reconciliation
+## Source and accounting reconciliation
 
 | Measure | Result |
 |---|---:|
@@ -15,43 +15,68 @@
 | SQL queries | 194 |
 | Dynamic-cache conditions | 235 |
 | Parseable records | 2,324 |
-| Parse status complete | 2,324 |
+| Parse complete | 2,324 |
 | Parse partial / opaque | 0 / 0 |
 
-## Rule discovery
+`accounting.json` independently reconciles the element, attribute and text denominators into mapped / evidence-only / marked-unknown / explicitly-ignored classifications. Unknown source constructs are counted rather than discarded.
+
+## Rule discovery and R08 ambiguity
 
 - Selected-mapping `rule_*` invocations: **128**.
-- Exactly one bounded primary endpoint: **106**.
+- Single-primary validation invocations: **106**.
 - Helper/non-outcome invocations: **21**.
-- Semantic ambiguities: **1**.
-- Ambiguous invocation: `m_Material_Master / rule_Standard_Lead_Time`.
-- Defensible primary readings: `rule_Standard_Lead_Time_ARIBA` and `rule_Standard_Lead_Time_COMM`.
+- Ambiguous invocation: **1** — `m_Material_Master / rule_Standard_Lead_Time`.
+- Defensible readings: `rule_Standard_Lead_Time_ARIBA` and `rule_Standard_Lead_Time_COMM`.
+- Emitted primary-endpoint candidates: **108** — 106 normal candidates plus both ambiguity readings.
 
-The implementation emits the ambiguous case separately and does not choose a reading.
+The two ambiguity candidates share one `ambiguity_id`, state the assumed primary endpoint in plain words, remain `recovery_status=semantic_ambiguity`, and are never silently promoted to matched/approved rules.
 
-## Determinism and gates
+## Verification and determinism
 
-Two complete runs against the supplied pilot ZIP exited 0 and produced byte-identical output directories. Current technical gates: structural/accounting baseline pass, pilot parser totality pass, vendor-neutral `semantics` pass, and no round-trip mismatch on rules eligible for the expression-only round-trip gate.
+Current verification over 108 candidates:
 
-R02C binding resolves identifiers only within the owning transformation and attaches source field ID, datatype, precision/scale and input/output role. At rule level, 79 primary endpoints are fully bound/parse-complete and 27 are partial because evidence cannot resolve every identifier. Eleven rules have no remaining external/non-expression blocker and all 11 pass render → parse → bind → normalise canonical-byte round-trip. The remaining 95 are `blocked_external`; none are counted as a pass.
+- `passed`: **11**
+- `blocked_external`: **97**
+- `failed`: **0**
 
-All 106 discovered primary endpoints remain `unmatched` because no human-owned rule-type descriptor set was supplied.
+Round-trip is render → parse → bind → normalise → canonical-byte compare for every expression in a closure that is otherwise verifiable: primary, supporting expressions and companion outputs. Native/non-expression operations or unresolved evidence keep the candidate `blocked_external`.
 
-## First full-run budget measurement
+Two complete runs produce **117 byte-identical files under `output/`**. `run-event.json` is deliberately outside `output/` and carries operational timestamp/performance metadata.
 
-A measured full run after R02C binding completed in **1.33 seconds** wall clock with **111,548 kB** maximum resident set size in the current Linux runtime. This is the R18 measurement baseline; no enforcement ceiling is invented in this implementation commit.
+Coverage metrics currently report:
 
-## Explicit blockers to final acceptance
+- Discovery: **128 / 128 = 100%** accounted invocations.
+- Parse completeness: **2,324 / 2,324 = 100%**.
+- Canonical matched recovery: **0 / 108 = 0%** because no human descriptor set was supplied.
+- Round-trip verification: **11 / 108 = 10.185185%**.
+- Truth-table verification: **0 / 108, not run**.
+- External blockers: **97**.
 
-1. Human acceptance fixtures/expected outputs required by DQ-RCV-URS-001 have not been supplied; implementation does not author them.
-2. A ratified descriptor set / rule-type naming input has not been supplied; implementation therefore clusters candidates but does not invent names.
-3. REQ-R12A's reviewed Informatica evaluation-semantics specification and truth-table vectors/reference snapshots have not been supplied; the independent truth-table oracle is therefore not claimed.
-4. R00 requires the ratified rule-identity decision to state its resulting denominator. The current mechanical result is 106 single-primary invocations plus one ambiguous invocation, but this report does not silently ratify that number for Architecture.
+## Descriptor/matcher mechanics exercised
 
-## Run command used
+A temporary mechanics-only descriptor was used outside the repository to exercise the generic loader/matcher without inventing a governed rule type:
 
-```bash
-PYTHONPATH=src python -m dq_recovery.cli recover \
-  --export "Test-Mappings-Export (2)(2).zip" \
-  --out <run-directory>
-```
+- valid same-shape descriptor → deterministic match;
+- duplicate fully-binding same-shape descriptors → `descriptor_conflict`, non-zero exit;
+- later run with lower matched percentage than prior output → coverage-regression gate, non-zero exit;
+- invalid shape declaration → load failure.
+
+These mechanics tests are not normative acceptance fixtures.
+
+## Open questions and construct evidence
+
+`open-questions.json` contains **107** domain-addressed entries: one for each unresolved single-primary rule plus the one ambiguous invocation. Where a rule has both identifier-binding and rule-type gaps they are consolidated into one entry rather than duplicated.
+
+`construct-matrix.json` records record kinds, transformation types, expression operators, recognised/unknown calls, external invocations, source-neutral semantic operations and external dependency types, each with occurrence count, support status and example source location. When `--previous` points to a prior output directory, newly unsupported constructs are flagged.
+
+## R18
+
+Raw wall time and maximum RSS are measured into `run-event.json`. An externally supplied `--budget` JSON can enforce `max_wall_seconds` and/or `max_rss_kb`; exceeding either exits non-zero. No production ceiling is invented in this repository.
+
+## Explicit blockers to final Stream 1 acceptance
+
+1. Human acceptance fixtures and expected golden outputs specified by DQ-RCV-URS-001 have not been supplied.
+2. A ratified governed descriptor set / rule-type naming input has not been supplied.
+3. REQ-R12A's reviewed Informatica evaluation-semantics specification, truth-table vectors and required reference-data snapshots have not been supplied.
+4. R00 still requires Architecture to ratify the governed rule denominator; V2 reports the mechanical evidence as 108 primary-endpoint candidates but does not ratify it on Architecture's behalf.
+5. Cross-transformation/instance-level closure is still conservative where source evidence cannot be bound mechanically; those cases remain blocked rather than guessed.
