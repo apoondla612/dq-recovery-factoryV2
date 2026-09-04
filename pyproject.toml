@@ -1,6 +1,6 @@
 [project]
-name = "dq-recovery-factory-v2"
-version = "0.2.0"
+name = "dq-recovery"
+version = "0.3.0"
 description = "Stream 1 recovery factory for Informatica IDQ rule logic"
 requires-python = ">=3.12"
 dependencies = []
