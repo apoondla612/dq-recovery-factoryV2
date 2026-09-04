@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+from typing import Any
 from .constants import *
 from .utils import attrs, local_name
 
@@ -70,21 +71,51 @@ def normalise(node):
     return {'op':op,'args':[normalise(a) for a in node.get('args',[])]} if 'args' in node else dict(node)
 
 def canonical_bytes(node): return json.dumps(node,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
-def shape(node):
+
+def _placeholder_kind(node: dict[str,Any]) -> str|None:
     op=node.get('op')
     if op=='IDENT': return 'FIELD'
     if op=='LIT':
         if node.get('outcome'): return 'OUTCOME'
         return {'string':'STR','number':'NUM','null':'NULL','bool':'BOOL','empty':'EMPTY'}.get(node.get('kind'),'LIT')
-    if op=='LKP': return ['reference_lookup','REF',[shape(a) for a in node.get('args',[])]]
-    if op=='CALL': return [node.get('name'),[shape(a) for a in node.get('args',[])]]
-    if 'args' in node: return [op,[shape(a) for a in node.get('args',[])]]
+    if op=='LKP': return 'REF'
+    return None
+
+def shape_with_slots(node: dict[str,Any], counter=None):
+    if counter is None: counter={'n':0}
+    kind=_placeholder_kind(node)
+    if kind:
+        counter['n']+=1
+        if node.get('op')=='LKP':
+            return ['reference_lookup',{'placeholder':kind,'slot':counter['n']},[shape_with_slots(a,counter) for a in node.get('args',[])]]
+        return {'placeholder':kind,'slot':counter['n']}
+    op=node.get('op')
+    if op=='CALL': return [node.get('name'),[shape_with_slots(a,counter) for a in node.get('args',[])]]
+    if 'args' in node: return [op,[shape_with_slots(a,counter) for a in node.get('args',[])]]
     return [op]
+
+def shape_signature(node:dict[str,Any])->str:
+    return json.dumps(shape_with_slots(node),sort_keys=True,separators=(',',':'),ensure_ascii=False)
+
+def concrete_slots(node:dict[str,Any], counter=None, out=None):
+    if counter is None: counter={'n':0}
+    if out is None: out={}
+    kind=_placeholder_kind(node)
+    if kind:
+        counter['n']+=1; slot=str(counter['n'])
+        if node.get('op')=='IDENT': out[slot]={'kind':'FIELD','value':node.get('binding') or {'name':node.get('name')}}
+        elif node.get('op')=='LIT': out[slot]={'kind':kind,'value':node.get('value'),'outcome':node.get('outcome')}
+        elif node.get('op')=='LKP': out[slot]={'kind':'REF','value':node.get('name')}
+        if node.get('op')=='LKP':
+            for a in node.get('args',[]): concrete_slots(a,counter,out)
+        return out
+    for a in node.get('args',[]): concrete_slots(a,counter,out)
+    return out
 
 def canonical_semantics(node):
     op=node.get('op')
     if op=='CALL': return {'kind':'call','name':CANON_CALLS.get(node.get('name'),node.get('name')),'args':[canonical_semantics(a) for a in node.get('args',[])]}
-    if op=='LKP': return {'kind':'reference_lookup','reference':node.get('name'),'args':[canonical_semantics(a) for a in node.get('args',[])]}
+    if op=='LKP': return {'kind':'reference_lookup','reference':'external_reference','args':[canonical_semantics(a) for a in node.get('args',[])]}
     if op=='IDENT': return {'kind':'field','name':node.get('name')}
     if op=='LIT':
         if node.get('outcome'): return {'kind':'outcome','value':node['outcome']}
