@@ -62,7 +62,11 @@ def normalise(node):
         d={'op':'LIT','kind':node.get('kind'),'value':node.get('value')}
         if d['kind']=='string' and d['value'] in OUTCOME_MAP: d['outcome']=OUTCOME_MAP[d['value']]
         return d
-    if op in {'IDENT','OPAQUE'}: return {k:v for k,v in node.items() if k in {'op','name','text','offset'}}
+    if op=='IDENT':
+        out={'op':'IDENT','name':node.get('name')}
+        if 'binding' in node: out['binding']=node.get('binding')
+        return out
+    if op=='OPAQUE': return {k:v for k,v in node.items() if k in {'op','text','offset'}}
     return {'op':op,'args':[normalise(a) for a in node.get('args',[])]} if 'args' in node else dict(node)
 
 def canonical_bytes(node): return json.dumps(node,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
@@ -99,7 +103,8 @@ def render(node):
     if op=='IDENT': return node.get('name','')
     if op=='LKP': return f"{node.get('name')}("+', '.join(render(a) for a in node.get('args',[]))+')'
     if op=='CALL': return f"{node.get('name')}("+', '.join(render(a) for a in node.get('args',[]))+')'
-    if op in {'NOT','U+','U-'}: return ('NOT ' if op=='NOT' else op[1])+render(node['args'][0])
+    if op=='NOT': return 'NOT ('+render(node['args'][0])+')'
+    if op in {'U+','U-'}: return op[1]+'('+render(node['args'][0])+')'
     if op in {'AND','OR'}: return (' '+op+' ').join('('+render(a)+')' for a in node.get('args',[]))
     if len(node.get('args',[]))==2: return '('+render(node['args'][0])+f' {op} '+render(node['args'][1])+')'
     return ''

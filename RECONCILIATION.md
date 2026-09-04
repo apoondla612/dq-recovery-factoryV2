@@ -33,7 +33,13 @@ The implementation emits the ambiguous case separately and does not choose a rea
 
 Two complete runs against the supplied pilot ZIP exited 0 and produced byte-identical output directories. Current technical gates: structural/accounting baseline pass, pilot parser totality pass, vendor-neutral `semantics` pass, and no round-trip mismatch on rules eligible for the expression-only round-trip gate.
 
-All 106 discovered primary endpoints currently remain `unmatched` because no human-owned rule-type descriptor set was supplied. Full-rule verification is conservatively `blocked_external` where unresolved bindings or non-expression semantic dependencies are present; it is never converted to `passed`.
+R02C binding resolves identifiers only within the owning transformation and attaches source field ID, datatype, precision/scale and input/output role. At rule level, 79 primary endpoints are fully bound/parse-complete and 27 are partial because evidence cannot resolve every identifier. Eleven rules have no remaining external/non-expression blocker and all 11 pass render → parse → bind → normalise canonical-byte round-trip. The remaining 95 are `blocked_external`; none are counted as a pass.
+
+All 106 discovered primary endpoints remain `unmatched` because no human-owned rule-type descriptor set was supplied.
+
+## First full-run budget measurement
+
+A measured full run after R02C binding completed in **1.33 seconds** wall clock with **111,548 kB** maximum resident set size in the current Linux runtime. This is the R18 measurement baseline; no enforcement ceiling is invented in this implementation commit.
 
 ## Explicit blockers to final acceptance
 

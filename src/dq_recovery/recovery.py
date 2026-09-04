@@ -8,16 +8,26 @@ from .constants import *
 from .parser import parse_expression
 from .utils import attrs, local_name, jwrite, sha256, register_export, decode_native
 from .semantic import find_mapping, mapping_index, infer_outcomes, normalise, canonical_bytes, shape, canonical_semantics, render
+from .binding import build_structure_map, bind_tree
 
 def _expr_records(mapping):
-    env={}; records=[]
+    structure=build_structure_map(mapping); env={}; records=[]
     for e in mapping.iter():
         a=attrs(e)
         if local_name(e.tag)=='ExpressionField' and 'expression' in a:
+            field=structure['fields_by_id'].get(a.get('id'), {})
+            scope=field.get('owner_transform_id')
             dec,err=decode_native(a['expression']); pr=parse_expression(dec)
-            rec={'id':a.get('id'),'name':a.get('name'),'raw':a['expression'],'decoded':dec,'decode_error':err,'parse_status':pr.parse_status,'tree':pr.tree,'comments':pr.comments,'output':a.get('output')=='true','input':a.get('input')=='true'}
-            records.append(rec); env[a.get('name')]=pr.tree
-    return env,records
+            br=bind_tree(pr.tree, structure, scope)
+            rec={
+                'id':a.get('id'),'name':a.get('name'),'raw':a['expression'],'decoded':dec,
+                'decode_error':err,'parse_status':pr.parse_status,'bind_status':br['bind_status'],
+                'tree':br['tree'],'comments':pr.comments,'output':a.get('output')=='true','input':a.get('input')=='true',
+                'owner_transform_id':scope,'owner_transform_name':field.get('owner_transform_name'),
+                'bindings':br['bindings'],'unresolved':br['unresolved'],'multiply_resolved':br['multiply_resolved']
+            }
+            records.append(rec); env[(scope,a.get('name'))]=br['tree']
+    return env,records,structure
 
 def scan_and_recover(work:Path, manifest:dict[str,Any], descriptors_dir:Path|None=None)->dict[str,Any]:
     counts=Counter(); parse_counts=Counter(); tx_counts=Counter(); constructs=Counter(); candidates=[]; rules=[]; ambiguous=[]; helpers=[]; decode_errors=[]
@@ -50,11 +60,12 @@ def scan_and_recover(work:Path, manifest:dict[str,Any], descriptors_dir:Path|Non
             definition=mids.get(ia.get('mapplet'))
             if definition is None:
                 helpers.append({**candidates[-1],'reason':'definition_missing'}); continue
-            env,recs=_expr_records(definition)
+            env,recs,structure=_expr_records(definition)
             prim=[]
             for r in recs:
                 if not r['output']: continue
-                outs=infer_outcomes(r['tree'],env)
+                scope_env={name:tree for (scope,name),tree in env.items() if scope==r['owner_transform_id']}
+                outs=infer_outcomes(r['tree'],scope_env)
                 if outs:
                     prim.append((r,sorted(outs)))
             if len(prim)==0:
@@ -64,14 +75,22 @@ def scan_and_recover(work:Path, manifest:dict[str,Any], descriptors_dir:Path|Non
             p,outcomes=prim[0]
             norm=normalise(p['tree']); cb=canonical_bytes(norm); shape_sig=json.dumps(shape(norm),sort_keys=True,separators=(',',':'))
             # conservative closure: expression dependencies plus every non-expression operation in definition
-            ids=set(); unresolved=set(); byname={r['name']:r for r in recs if r.get('name')}
+            ids=set(); unresolved=set(); multiply=set(); bound_fields={}
+            byname={r['name']:r for r in recs if r.get('name') and r.get('owner_transform_id')==p.get('owner_transform_id')}
             def collect(n):
                 if not isinstance(n,dict): return
                 if n.get('op')=='IDENT':
-                    name=n.get('name');
-                    if name in byname and name not in ids:
-                        ids.add(name); collect(byname[name]['tree'])
-                    else: unresolved.add(name)
+                    name=n.get('name'); binding=n.get('binding')
+                    if binding and binding.get('field_id'):
+                        fid=binding['field_id']; field=structure['fields_by_id'].get(fid)
+                        if field: bound_fields[fid]=field
+                    elif binding and binding.get('candidates'):
+                        multiply.add(name)
+                    else:
+                        unresolved.add(name)
+                    dep=byname.get(name)
+                    if dep and not dep.get('input') and name not in ids:
+                        ids.add(name); collect(dep['tree'])
                 for ch in n.get('args',[]): collect(ch)
             collect(p['tree'])
             deps=[]
@@ -79,18 +98,18 @@ def scan_and_recover(work:Path, manifest:dict[str,Any], descriptors_dir:Path|Non
                 a=attrs(e)
                 if local_name(e.tag)=='AbstractTransformation' and a.get('type') not in {None,'expression:ExpressionTx','mapplet:MappletInputTx','mapplet:MappletOutputTx'}:
                     deps.append({'type':a.get('type'),'id':a.get('id'),'name':a.get('name')})
-            parse_status='complete' if p['parse_status']=='complete' and not p['decode_error'] else p['parse_status']
-            verification='blocked_external' if deps or unresolved or parse_status!='complete' else 'not_run'
+            parse_status='complete' if p['parse_status']=='complete' and not p['decode_error'] and not unresolved and not multiply else 'partial'
+            verification='blocked_external' if deps or unresolved or multiply or parse_status!='complete' else 'not_run'
             rule={
                 'semantics':{'primary':canonical_semantics(norm),'outcome_universe':['VALID','INVALID','NOT_EVALUATED'],'reachable_outcomes':outcomes},
-                'bindings':{'unresolved_identifiers':sorted(unresolved),'external_dependencies':deps},
+                'bindings':{'fields':[bound_fields[k] for k in sorted(bound_fields)],'unresolved_identifiers':sorted(unresolved),'multiply_resolved_identifiers':sorted(multiply),'external_dependencies':deps},
                 'evidence':{'source_member':mem['name'],'source_sha256':mem['sha256'],'mapping':target,'invocation_id':ia.get('id'),'invocation_name':ia.get('name'),'definition_id':ia.get('mapplet'),'primary_endpoint_id':p['id'],'primary_endpoint_name':p['name'],'primary_expression_raw':p['raw'],'primary_expression_decoded':p['decoded'],'supporting_expression_names':sorted(ids),'semantic_hash':sha256(cb),'shape_signature':shape_sig},
                 'status':{'parse_status':parse_status,'recovery_status':'unmatched','verification_status':verification}
             }
             # independent render/parse/normalise byte gate for verifiable expression-only case
             if verification=='not_run':
-                rend=render(norm); rr=parse_expression(rend)
-                if rr.parse_status=='complete' and canonical_bytes(normalise(rr.tree))==cb: rule['status']['verification_status']='passed'
+                rend=render(norm); rr=parse_expression(rend); rb=bind_tree(rr.tree,structure,p.get('owner_transform_id'))
+                if rr.parse_status=='complete' and rb['bind_status']=='complete' and canonical_bytes(normalise(rb['tree']))==cb: rule['status']['verification_status']='passed'
                 else: rule['status']['verification_status']='failed'
             rules.append(rule)
     # construct matrix includes transformations once after full scan
