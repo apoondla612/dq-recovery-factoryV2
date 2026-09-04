@@ -19,6 +19,7 @@ OUTCOME_MAP = {
     "INVALID": "INVALID", "Invalid": "INVALID",
     "DONTEVAL": "NOT_EVALUATED",
 }
+OUTCOME_UNIVERSE = ["VALID", "INVALID", "NOT_EVALUATED"]
 CANON_CALLS = {
     "IIF":"conditional", "DECODE":"choose", "IN":"in_set", "SQL_LIKE":"pattern_like",
     "ISNULL":"is_null", "LENGTH":"length", "CONCAT":"concat", "LTRIM":"trim_left",
@@ -33,5 +34,18 @@ CANON_OPS = {
     "+":"add", "-":"subtract", "*":"multiply", "/":"divide", "%":"modulo", "||":"concat_op",
     "U+":"positive", "U-":"negative",
 }
-INV_CALLS = {v:k for k,v in CANON_CALLS.items()}
-INV_OPS = {v:k for k,v in CANON_OPS.items()}
+# Native XML element/attribute names the implementation actively interprets.
+# Everything else is retained as marked_unknown/evidence-only rather than silently discarded.
+MAPPED_ELEMENTS = {
+    "Mapping", "AbstractTransformation", "ExpressionField", "TransformationFieldPort",
+    "InputField", "OutputField", "Field", "Port", "AbstractField", "Instance",
+}
+MAPPED_ATTRIBUTES = {
+    "id", "idref", "name", "type", "expression", "lookupCondition", "filterCondition",
+    "joinCondition", "sqlQuery", "updateDynamicCacheCondition", "input", "output", "mapplet",
+    "precision", "odbcPrecision", "scale", "fromField", "toField", "fromPort", "toPort",
+    "fromInstance", "toInstance", "field", "port", "transformation", "instance", "ref",
+}
+EVIDENCE_ONLY_ATTRIBUTES = {
+    "description", "label", "version", "createdDate", "modifiedDate", "objectVersion", "repositoryName",
+}
